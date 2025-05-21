@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # --- MongoDB ---
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # --- Redis ---
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # --- RabbitMQ ---
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: password
+
+  # --- Backend: NestJS ---
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nest_backend
+    restart: unless-stopped
+    ports:
+      - "5000:3000"
+    depends_on:
+      - mongo
+      - redis
+      - rabbitmq
+    environment:
+      MONGO_URI: mongodb://mongo:27017/appdb
+      REDIS_HOST: redis
+      RABBITMQ_URL: amqp://user:password@rabbitmq:5672
+    volumes:
+      - ./backend:/app
+    command: ["./wait-for-it.sh", "mongo:27017", "--", "npm", "run", "start:dev"]
+
+  # --- Frontend: NextJS ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: next_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost/api
+    volumes:
+      - ./frontend:/app
+    command: npm run dev
+
+  # --- NGINX Reverse Proxy ---
+  nginx:
+    image: nginx:stable
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  mongo_data:
